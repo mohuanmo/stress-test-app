@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 应用名称 -->
+    <string name="app_name">压力检测工具</string>
+
+    <!-- 输入区域 -->
+    <string name="label_target_url">目标 URL</string>
+    <string name="hint_target_url">https://192.168.0.1</string>
+    <string name="label_concurrent">并发线程数</string>
+    <string name="label_duration">测试持续时间（秒）</string>
+    <string name="label_protocol">请求协议</string>
+
+    <!-- 按钮 -->
+    <string name="btn_start">▶ 开始测试</string>
+    <string name="btn_stop">■ 停止</string>
+    <string name="btn_pause">⏸ 暂停</string>
+    <string name="btn_resume">▶ 继续</string>
+    <string name="btn_export_csv">📥 导出 CSV</string>
+
+    <!-- 状态显示 -->
+    <string name="status_idle">就绪</string>
+    <string name="status_running">测试进行中…</string>
+    <string name="status_paused">已暂停</string>
+    <string name="status_stopped">已停止</string>
+    <string name="status_completed">测试完成</string>
+    <string name="label_total_requests">总请求数</string>
+    <string name="label_success">成功</string>
+    <string name="label_failed">失败</string>
+    <string name="label_qps">当前 QPS</string>
+    <string name="label_avg_time">平均响应时间</string>
+    <string name="label_max_time">最大响应时间</string>
+    <string name="label_min_time">最小响应时间</string>
+    <string name="label_elapsed">已耗时</string>
+    <string name="label_concurrent_active">当前活跃</string>
+
+    <!-- 单位 -->
+    <string name="unit_seconds">秒</string>
+    <string name="unit_ms">ms</string>
+    <string name="unit_threads">线程</string>
+    <string name="unit_requests">次</string>
+
+    <!-- 导出 -->
+    <string name="export_success">CSV 已导出到 Download 目录</string>
+    <string name="export_failed">导出失败：%s</string>
+    <string name="export_filename">stress_test_report.csv</string>
+
+    <!-- 错误提示 -->
+    <string name="error_invalid_url">请输入有效的 URL</string>
+    <string name="error_invalid_threads">并发数需在 1-1000 之间</string>
+    <string name="error_invalid_duration">持续时间需大于 0</string>
+    <string name="error_test_running">测试正在进行，请先停止</string>
+</resources>

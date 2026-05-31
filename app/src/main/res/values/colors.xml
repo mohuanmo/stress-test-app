@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 主色调 — Material Design 3 色板 -->
+    <color name="primary">#FF1565C0</color>
+    <color name="primary_variant">#FF0D47A1</color>
+    <color name="on_primary">#FFFFFFFF</color>
+    <color name="secondary">#FF26A69A</color>
+    <color name="secondary_variant">#FF00897B</color>
+
+    <!-- 背景和表面 -->
+    <color name="background">#FFFAFAFA</color>
+    <color name="surface">#FFFFFFFF</color>
+    <color name="on_background">#FF212121</color>
+    <color name="on_surface">#FF212121</color>
+
+    <!-- 状态指示色 -->
+    <color name="status_success">#FF4CAF50</color>
+    <color name="status_error">#FFF44336</color>
+    <color name="status_warning">#FFFF9800</color>
+    <color name="status_running">#FF2196F3</color>
+    <color name="status_paused">#FFFFC107</color>
+</resources>
