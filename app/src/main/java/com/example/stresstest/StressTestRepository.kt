@@ -18,31 +18,21 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 压力测试仓库类 — 核心引擎
  *
- * 使用 OkHttp 4.x 实现高并发 HTTP 请求。
- * 采用 Kotlin Coroutines 管理并发任务，支持：
- * - 可配置的并发线程数（通过 Coroutine 协程数控制）
- * - 实时状态上报（通过 StateFlow）
- * - 暂停/继续/停止控制
- * - 响应时间统计（平均/最小/最大）
+ * 使用 OkHttp 4.x + Kotlin Coroutines 实现高并发 HTTP 请求。
+ * 采用纯协程方式管理暂停/继续，不使用 Java 并发原语。
  */
 class StressTestRepository {
 
     // ==================== 状态定义 ====================
 
-    /**
-     * 测试运行状态
-     */
     enum class TestState {
-        IDLE,       // 空闲
-        RUNNING,    // 运行中
-        PAUSED,     // 已暂停
-        STOPPING,   // 正在停止
-        COMPLETED   // 已完成
+        IDLE,
+        RUNNING,
+        PAUSED,
+        STOPPING,
+        COMPLETED
     }
 
-    /**
-     * 实时统计数据，通过 StateFlow 推送至 UI
-     */
     data class TestStats(
         val totalRequests: Long = 0,
         val successCount: Long = 0,
@@ -57,138 +47,94 @@ class StressTestRepository {
 
     // ==================== 配置 ====================
 
-    /** OkHttp 客户端实例（连接池复用） */
     private var httpClient: OkHttpClient = createDefaultClient()
-
-    /** 连接超时时间（毫秒） */
     private val connectTimeoutMs = 10_000L
-
-    /** 读取超时时间（毫秒） */
     private val readTimeoutMs = 30_000L
-
-    /** 请求尝试次数 */
     private val maxRetries = 2
 
     // ==================== 运行时状态 ====================
 
-    /** 协程作用域 — 用于管理所有测试协程的生命周期 */
     private var testScope: CoroutineScope? = null
 
-    /** 暂停/继续控制 */
-    private val pauseLock = Any()
+    /** 暂停状态：通过协程轮询控制，不使用 wait/notify */
+    private val isPaused = AtomicBoolean(false)
 
-    /** 当前测试状态 */
     private val _testState = MutableStateFlow(TestState.IDLE)
     val testState: StateFlow<TestState> = _testState.asStateFlow()
 
-    /** 实时统计数据流 */
     private val _stats = MutableStateFlow(TestStats())
     val stats: StateFlow<TestStats> = _stats.asStateFlow()
 
-    /** 所有请求结果列表（用于导出CSV） */
     private val _results = mutableListOf<StressTestResult>()
-
-    /** 请求计数器 */
     private val requestCounter = AtomicLong(0)
-
-    /** 是否正在运行 */
     private val isRunning = AtomicBoolean(false)
-
-    /** 是否暂停 */
-    private val isPaused = AtomicBoolean(false)
-
-    /** 开始时间戳 */
     private var startTimeMs = 0L
-
-    /** QPS 计算 */
     private val qpsCounter = AtomicInteger(0)
 
     // ==================== 公共接口 ====================
 
-    /**
-     * 开始压力测试
-     *
-     * @param targetUrl 目标 URL
-     * @param concurrentCount 并发线程数（1-1000）
-     * @param durationSeconds 测试持续时间（秒）
-     */
     fun startTest(
         targetUrl: String,
         concurrentCount: Int,
         durationSeconds: Int
     ) {
-        // 如果已经在运行，先停止
         if (isRunning.get()) {
             stopTest()
         }
 
-        // 重置状态
         resetState()
 
-        // 初始化统计
         _testState.value = TestState.RUNNING
         isRunning.set(true)
         isPaused.set(false)
         startTimeMs = System.currentTimeMillis()
 
-        // 创建 OkHttp 客户端（带连接池优化）
         httpClient = createOptimizedClient(concurrentCount)
-
-        // 创建协程作用域
         testScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-        // 启动 QPS 统计协程
+        // QPS 统计协程
         testScope?.launch {
             while (isActive && isRunning.get()) {
-                delay(1000) // 每秒计算 QPS
+                delay(1000)
                 val currentQps = qpsCounter.getAndSet(0).toDouble()
                 _stats.value = _stats.value.copy(qps = currentQps)
             }
         }
 
-        // 启动耗时计时器
+        // 耗时计时器
         testScope?.launch {
             while (isActive && isRunning.get()) {
                 delay(1000)
                 val elapsed = (System.currentTimeMillis() - startTimeMs) / 1000
                 _stats.value = _stats.value.copy(elapsedSeconds = elapsed)
-
-                // 检查是否达到持续时间
                 if (elapsed >= durationSeconds && isRunning.get()) {
                     stopTest()
                 }
             }
         }
 
-        // 启动并发请求任务
-        repeat(concurrentCount) { threadIndex ->
+        // 并发请求任务
+        repeat(concurrentCount) { threadIndex: Int ->
             testScope?.launch {
                 while (isActive && isRunning.get()) {
-                    // 暂停检测
-                    if (isPaused.get()) {
-                        synchronized(pauseLock) {
-                            if (isPaused.get()) {
-                                pauseLock.wait()
-                            }
-                        }
+                    // 暂停检查：轮询直到恢复，不使用 Java wait
+                    while (isPaused.get() && isRunning.get()) {
+                        delay(50)
+                        if (!isActive) return@launch
                     }
+                    if (!isRunning.get()) break
 
-                    // 发送 HTTP 请求
                     val result = executeRequest(threadIndex, targetUrl)
                     if (result != null) {
                         updateStatsAfterRequest(result)
                     }
 
-                    // 短暂延迟，避免 CPU 满载（约 0-5ms 随机延迟）
                     delay((0..5).random().toLong())
                 }
             }
         }
     }
 
-    /**
-     * 暂停测试
-     */
     fun pauseTest() {
         if (isRunning.get() && !isPaused.get()) {
             isPaused.set(true)
@@ -197,24 +143,14 @@ class StressTestRepository {
         }
     }
 
-    /**
-     * 继续测试
-     */
     fun resumeTest() {
         if (isRunning.get() && isPaused.get()) {
             isPaused.set(false)
             _testState.value = TestState.RUNNING
             _stats.value = _stats.value.copy(testState = TestState.RUNNING)
-            // 唤醒所有等待的协程
-            synchronized(pauseLock) {
-                pauseLock.notifyAll()
-            }
         }
     }
 
-    /**
-     * 停止测试
-     */
     fun stopTest() {
         if (!isRunning.get()) return
 
@@ -222,29 +158,17 @@ class StressTestRepository {
         isRunning.set(false)
         isPaused.set(false)
 
-        // 取消协程作用域
         testScope?.cancel()
         testScope = null
-
-        // 唤醒暂停中的协程
-        synchronized(pauseLock) {
-            pauseLock.notifyAll()
-        }
 
         _testState.value = TestState.COMPLETED
         _stats.value = _stats.value.copy(testState = TestState.COMPLETED)
     }
 
-    /**
-     * 获取结果列表（用于导出CSV）
-     */
     fun getResults(): List<StressTestResult> = synchronized(_results) {
         _results.toList()
     }
 
-    /**
-     * 清除结果
-     */
     fun clearResults() {
         synchronized(_results) {
             _results.clear()
@@ -253,9 +177,6 @@ class StressTestRepository {
 
     // ==================== 内部方法 ====================
 
-    /**
-     * 创建默认 OkHttp 客户端
-     */
     private fun createDefaultClient(): OkHttpClient {
         return OkHttpClient.Builder()
             .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
@@ -265,12 +186,7 @@ class StressTestRepository {
             .build()
     }
 
-    /**
-     * 创建优化后的 OkHttp 客户端
-     * 根据并发数调整连接池大小
-     */
     private fun createOptimizedClient(concurrentCount: Int): OkHttpClient {
-        // 连接池大小 = 并发数 + 10 个缓冲
         val poolSize = maxOf(concurrentCount + 10, 20)
         return OkHttpClient.Builder()
             .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
@@ -288,18 +204,10 @@ class StressTestRepository {
             .build()
     }
 
-    /**
-     * 执行单个 HTTP 请求
-     *
-     * @param threadIndex 线程编号（仅用于标识）
-     * @param url 请求 URL
-     * @return StressTestResult? 请求结果
-     */
     private fun executeRequest(threadIndex: Int, url: String): StressTestResult? {
         val requestId = requestCounter.incrementAndGet()
         val requestStartTime = System.nanoTime()
 
-        // 构造 HTTP 请求
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "StressTestApp/1.0")
@@ -310,21 +218,17 @@ class StressTestRepository {
         var lastError: String? = null
         var lastStatusCode = -1
 
-        // 重试逻辑
         for (attempt in 0..maxRetries) {
             try {
                 val response: Response = httpClient.newCall(request).execute()
                 val statusCode = response.code
-                val responseBody = response.body?.string() ?: ""
                 response.close()
 
                 lastStatusCode = statusCode
 
-                // 计算响应时间（纳秒转毫秒）
                 val responseTimeNs = System.nanoTime() - requestStartTime
                 val responseTimeMs = responseTimeNs / 1_000_000
 
-                // 构建结果
                 return StressTestResult(
                     requestId = requestId,
                     url = url,
@@ -336,7 +240,6 @@ class StressTestRepository {
                 )
             } catch (e: IOException) {
                 lastError = e.message ?: "Unknown IO error"
-                // 网络错误，重试
                 if (attempt < maxRetries) {
                     try {
                         Thread.sleep(100)
@@ -346,11 +249,10 @@ class StressTestRepository {
                 }
             } catch (e: Exception) {
                 lastError = e.message ?: "Unknown error"
-                break // 非 IO 错误不重试
+                break
             }
         }
 
-        // 所有重试均失败
         val responseTimeNs = System.nanoTime() - requestStartTime
         val responseTimeMs = responseTimeNs / 1_000_000
 
@@ -365,9 +267,6 @@ class StressTestRepository {
         )
     }
 
-    /**
-     * 请求完成后更新统计数据
-     */
     private fun updateStatsAfterRequest(result: StressTestResult) {
         qpsCounter.incrementAndGet()
 
@@ -377,7 +276,6 @@ class StressTestRepository {
             val newSuccess = current.successCount + if (result.success) 1 else 0
             val newFailed = current.failedCount + if (!result.success) 1 else 0
 
-            // 更新响应时间统计
             val newAvg = if (current.totalRequests > 0) {
                 (current.avgResponseTime * current.totalRequests + result.responseTimeMs) / newTotal
             } else {
@@ -396,15 +294,11 @@ class StressTestRepository {
             )
         }
 
-        // 记录结果（用于 CSV 导出）
         synchronized(_results) {
             _results.add(result)
         }
     }
 
-    /**
-     * 重置所有状态
-     */
     private fun resetState() {
         _testState.value = TestState.IDLE
         _stats.value = TestStats()
