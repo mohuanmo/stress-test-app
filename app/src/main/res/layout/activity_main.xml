@@ -162,7 +162,7 @@
                             android:layout_weight="1"
                             android:layout_marginEnd="8dp"
                             android:text="@string/btn_start"
-                            style="@style/Widget.Material3.Button.Filled" />
+                            style="@style/Widget.Material3.Button" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnPauseResume"
@@ -172,7 +172,7 @@
                             android:layout_marginEnd="8dp"
                             android:text="@string/btn_pause"
                             android:visibility="gone"
-                            style="@style/Widget.Material3.Button.Tonal" />
+                             />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnStop"
@@ -465,7 +465,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/btn_export_csv"
                         android:layout_marginTop="12dp"
-                        style="@style/Widget.Material3.Button.Outlined" />
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
