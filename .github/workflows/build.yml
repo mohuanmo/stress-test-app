@@ -27,10 +27,11 @@ jobs:
       - name: 编译 Debug APK
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: 上传 APK
-        uses: actions/upload-artifact@v4
+      - name: 上传 APK（直接上传文件，不打包ZIP）
+        uses: actions/upload-artifact@v7
         with:
           name: stress-test-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          archive: false
           retention-days: 30
