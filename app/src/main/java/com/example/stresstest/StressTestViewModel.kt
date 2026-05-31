@@ -8,8 +8,6 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +18,7 @@ import java.io.FileOutputStream
 /**
  * 压力测试 ViewModel — MVVM 架构核心
  *
- * 负责管理UI状态、协调压力引擎与保护监控器之间的关系。
+ * 负责管理UI状态、协调压力引擎。
  * 使用 AndroidViewModel 以获取 Application 上下文。
  *
  * 生命周期感知：屏幕旋转时不丢失测试状态（Activity 重建但 ViewModel 存活）。
@@ -32,9 +30,6 @@ class StressTestViewModel(application: Application) : AndroidViewModel(applicati
     /** 压力测试引擎 */
     private val repository = StressTestRepository()
 
-    /** 设备保护监控器 */
-    private val protectionMonitor = DeviceProtectionMonitor(application)
-
     // ==================== UI 状态流 ====================
 
     /** 测试状态 */
@@ -42,13 +37,6 @@ class StressTestViewModel(application: Application) : AndroidViewModel(applicati
 
     /** 实时统计数据 */
     val stats: StateFlow<StressTestRepository.TestStats> = repository.stats
-
-    /** 保护状态（设备健康信息） */
-    private val _protectionState = MutableStateFlow(
-        DeviceProtectionMonitor.ProtectionState()
-    )
-    val protectionState: StateFlow<DeviceProtectionMonitor.ProtectionState> =
-        _protectionState.asStateFlow()
 
     /** UI 输入校验错误信息 */
     private val _inputError = MutableStateFlow<String?>(null)
@@ -58,23 +46,12 @@ class StressTestViewModel(application: Application) : AndroidViewModel(applicati
     private val _exportState = MutableStateFlow<ExportState>(ExportState.IDLE)
     val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
 
-    /** 保护监控更新协程 */
-    private var protectionUpdateJob: Job? = null
-
     // CSV导出状态
     enum class ExportState {
         IDLE,       // 空闲
         EXPORTING,  // 导出中
         SUCCESS,    // 导出成功
         FAILED      // 导出失败
-    }
-
-    init {
-        // 绑定保护监控器到引擎
-        repository.setProtectionMonitor(protectionMonitor)
-
-        // 启动保护状态定时更新（每3秒刷新一次UI上的温度/内存信息）
-        startProtectionUpdates()
     }
 
     // ==================== 公共方法 ====================
@@ -92,13 +69,6 @@ class StressTestViewModel(application: Application) : AndroidViewModel(applicati
         val url = validateUrl(urlStr) ?: return false
         val threads = validateThreads(threadsStr) ?: return false
         val duration = validateDuration(durationStr) ?: return false
-
-        // 检查设备状态 — 如果电量过低，拒绝启动
-        val deviceState = protectionMonitor.getProtectionState()
-        if (deviceState.protectionLevel == DeviceProtectionMonitor.ProtectionLevel.SHUTDOWN) {
-            _inputError.value = "设备电量不足 ${deviceState.batteryLevel}%，请充电后再测试"
-            return false
-        }
 
         _inputError.value = null
         repository.startTest(url, threads, duration)
@@ -179,7 +149,6 @@ class StressTestViewModel(application: Application) : AndroidViewModel(applicati
 
     override fun onCleared() {
         super.onCleared()
-        protectionUpdateJob?.cancel()
         repository.stopTest()
     }
 
@@ -230,20 +199,6 @@ class StressTestViewModel(application: Application) : AndroidViewModel(applicati
             return null
         }
         return duration
-    }
-
-    /**
-     * 启动保护状态定时更新
-     * 每3秒刷新保护状态，用于UI显示温度/内存等信息
-     */
-    private fun startProtectionUpdates() {
-        protectionUpdateJob = viewModelScope.launch {
-            while (true) {
-                delay(3000)
-                val currentActive = stats.value.totalRequests.toInt()
-                _protectionState.value = protectionMonitor.getProtectionState(currentActive)
-            }
-        }
     }
 
     /**

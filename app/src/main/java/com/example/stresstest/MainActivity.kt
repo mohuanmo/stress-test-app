@@ -236,19 +236,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // === 保护状态更新 ===
-        lifecycleScope.launch {
-            viewModel.protectionState.collectLatest { protection ->
-                val tempText = protectionMonitor.getTemperatureDisplayText(
-                    protection.batteryTemp,
-                    protection.cpuTemp
-                )
-                // 如果有保护信息，显示提示
-                if (protection.message.isNotEmpty()) {
-                    Snackbar.make(binding.root, protection.message, Snackbar.LENGTH_SHORT).show()
-                }
-            }
-        }
     }
 
     /**

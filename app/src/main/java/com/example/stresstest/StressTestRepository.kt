@@ -4,12 +4,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import okhttp5.ConnectionPool
-import okhttp5.ConnectionSpec
-import okhttp5.OkHttpClient
-import okhttp5.Request
-import okhttp5.Response
-import android.content.Context
+import okhttp3.ConnectionPool
+import okhttp3.ConnectionSpec
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -19,15 +18,12 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 压力测试仓库类 — 核心引擎
  *
- * 使用 OkHttp 5.0.0 实现高并发 HTTP 请求。
+ * 使用 OkHttp 4.x 实现高并发 HTTP 请求。
  * 采用 Kotlin Coroutines 管理并发任务，支持：
  * - 可配置的并发线程数（通过 Coroutine 协程数控制）
  * - 实时状态上报（通过 StateFlow）
  * - 暂停/继续/停止控制
  * - 响应时间统计（平均/最小/最大）
- *
- * OkHttp 5.0.0 说明：搜索确认于2025年7月发布，
- * Maven 坐标从 com.squareup.okhttp3 改为 com.squareup.okhttp5（独立Android包）
  */
 class StressTestRepository {
 
@@ -73,15 +69,6 @@ class StressTestRepository {
     /** 请求尝试次数 */
     private val maxRetries = 2
 
-    /** 设备保护监控器（由 ViewModel 传入） */
-    private var protectionMonitor: DeviceProtectionMonitor? = null
-
-    /** 用户设定的目标并发数（不会超过此值） */
-    private var userTargetThreads: Int = 10
-
-    /** 保护监控协程 Job */
-    private var protectionJob: Job? = null
-
     // ==================== 运行时状态 ====================
 
     /** 协程作用域 — 用于管理所有测试协程的生命周期 */
@@ -119,14 +106,6 @@ class StressTestRepository {
     // ==================== 公共接口 ====================
 
     /**
-     * 绑定设备保护监控器
-     * 必须在 startTest 之前调用
-     */
-    fun setProtectionMonitor(monitor: DeviceProtectionMonitor) {
-        this.protectionMonitor = monitor
-    }
-
-    /**
      * 开始压力测试
      *
      * @param targetUrl 目标 URL
@@ -138,7 +117,6 @@ class StressTestRepository {
         concurrentCount: Int,
         durationSeconds: Int
     ) {
-        userTargetThreads = concurrentCount
         // 如果已经在运行，先停止
         if (isRunning.get()) {
             stopTest()
@@ -178,43 +156,6 @@ class StressTestRepository {
                 // 检查是否达到持续时间
                 if (elapsed >= durationSeconds && isRunning.get()) {
                     stopTest()
-                }
-            }
-        }
-
-        // 启动保护监控协程 — 每5秒检查一次设备健康状态
-        testScope?.launch {
-            while (isActive && isRunning.get()) {
-                delay(5000) // 每5秒检查一次
-                val monitor = protectionMonitor ?: continue
-                val currentActive = _stats.value.totalRequests.toInt()
-                val state = monitor.getProtectionState(currentActive)
-
-                // 根据保护级别自动调整
-                when (state.protectionLevel) {
-                    DeviceProtectionMonitor.ProtectionLevel.SHUTDOWN -> {
-                        // 紧急情况 — 停止测试
-                        stopTest()
-                        break
-                    }
-                    DeviceProtectionMonitor.ProtectionLevel.CRITICAL -> {
-                        // 危险 — 暂停测试
-                        if (!isPaused.get()) {
-                            pauseTest()
-                        }
-                    }
-                    DeviceProtectionMonitor.ProtectionLevel.WARNING -> {
-                        // 警告 — 如果暂停了，恢复但降速
-                        if (isPaused.get()) {
-                            resumeTest()
-                        }
-                    }
-                    DeviceProtectionMonitor.ProtectionLevel.NORMAL -> {
-                        // 正常 — 如果暂停了，恢复
-                        if (isPaused.get()) {
-                            resumeTest()
-                        }
-                    }
                 }
             }
         }
@@ -455,7 +396,7 @@ class StressTestRepository {
             )
         }
 
-        // 保存结果到列表
+        // 记录结果（用于 CSV 导出）
         synchronized(_results) {
             _results.add(result)
         }
@@ -465,15 +406,12 @@ class StressTestRepository {
      * 重置所有状态
      */
     private fun resetState() {
-        requestCounter.set(0)
-        qpsCounter.set(0)
-        isRunning.set(false)
-        isPaused.set(false)
-        startTimeMs = 0L
-
+        _testState.value = TestState.IDLE
         _stats.value = TestStats()
         synchronized(_results) {
             _results.clear()
         }
+        requestCounter.set(0)
+        qpsCounter.set(0)
     }
 }
